@@ -111,6 +111,14 @@ def create_app(desktop: "DesktopApp") -> FastAPI:
     def index():
         return FileResponse(webui / "index.html")
 
+    @app.get("/partials/{name}.html")
+    def partial(name: str):
+        path = webui / "partials" / f"{name}.html"
+        if not path.exists():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404)
+        return FileResponse(path)
+
     @app.get("/favicon.ico")
     def favicon():
         return Response(status_code=204)

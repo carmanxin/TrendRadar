@@ -95,3 +95,16 @@ def test_static_assets_serves_css(isolate_paths):
     r = client.get("/static/assets/styles.css")
     assert r.status_code == 200
     assert b"body" in r.content
+
+
+def test_partial_wizard_served(isolate_paths):
+    client = _make_client()
+    r = client.get("/partials/wizard.html")
+    assert r.status_code == 200
+    assert "首次设置" in r.text
+
+
+def test_partial_missing_returns_404(isolate_paths):
+    client = _make_client()
+    r = client.get("/partials/nonexistent.html")
+    assert r.status_code == 404
