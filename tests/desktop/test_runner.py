@@ -125,3 +125,15 @@ def test_mask_config_does_not_mutate_input():
     cfg = {"ai": {"api_key": "sk-aaaa"}}
     runner.mask_config(cfg)
     assert cfg["ai"]["api_key"] == "sk-aaaa"
+
+
+def test_build_core_command_dev_mode(monkeypatch):
+    monkeypatch.setattr(runner, "is_frozen", lambda: False)
+    cmd = runner.build_core_command()
+    assert cmd == [sys.executable, "-m", "trendradar"]
+
+
+def test_build_core_command_frozen_mode(monkeypatch):
+    monkeypatch.setattr(runner, "is_frozen", lambda: True)
+    cmd = runner.build_core_command()
+    assert cmd == [sys.executable, "--run-core"]

@@ -43,3 +43,37 @@ def test_webui_dir_is_callable():
 def test_module_constants_are_set():
     assert paths.APP_NAME == "TrendRadar"
     assert paths.APP_AUTHOR == "TrendRadar"
+
+
+def test_webui_dir_frozen_mode_resolves_meipass(tmp_path, monkeypatch):
+    """Frozen mode must resolve webui from sys._MEIPASS root, matching the
+    PyInstaller spec's datas destination ('../trendradar/desktop/webui', 'webui')."""
+    # Simulate the PyInstaller bundle layout: _MEIPASS/webui/index.html
+    (tmp_path / "webui" / "index.html").parent.mkdir(parents=True)
+    (tmp_path / "webui" / "index.html").write_text("", encoding="utf-8")
+    monkeypatch.setattr(paths, "is_frozen", lambda: True)
+    # _MEIPASS is normally only present inside a frozen bundle; inject it onto
+    # the real sys module and restore after the test.
+    import sys as _real_sys
+    _real_sys._MEIPASS = str(tmp_path)  # type: ignore[attr-defined]
+    try:
+        result = paths.webui_dir()
+        assert result == tmp_path / "webui"
+        assert (result / "index.html").exists()
+    finally:
+        del _real_sys._MEIPASS  # type: ignore[attr-defined]
+
+
+def test_webui_dir_frozen_mode_missing_raises(tmp_path, monkeypatch):
+    """If the bundle lacks webui/ (spec misconfigured), webui_dir() must raise."""
+    monkeypatch.setattr(paths, "is_frozen", lambda: True)
+    import sys as _real_sys
+    _real_sys._MEIPASS = str(tmp_path)  # type: ignore[attr-defined]
+    try:
+        try:
+            paths.webui_dir()
+            assert False, "expected FileNotFoundError"
+        except FileNotFoundError:
+            pass
+    finally:
+        del _real_sys._MEIPASS  # type: ignore[attr-defined]

@@ -45,6 +45,25 @@ def redact_secrets(text: str) -> str:
     return _SECRET_PATTERN.sub(r"\1=***", text)
 
 
+def is_frozen() -> bool:
+    """True when running inside a PyInstaller bundle."""
+    import sys as _sys
+    return getattr(_sys, "frozen", False) and hasattr(_sys, "_MEIPASS")
+
+
+def build_core_command() -> list[str]:
+    """Return the command used to run the TrendRadar core.
+
+    In dev: `[sys.executable, "-m", "trendradar"]`.
+    In a PyInstaller bundle: `[sys.executable, "--run-core"]`, because there is
+    no `python.exe` and no on-disk `trendradar/` package inside the bundle —
+    the frozen executable itself handles `--run-core` in desktop/__main__.py.
+    """
+    if is_frozen():
+        return [sys.executable, "--run-core"]
+    return [sys.executable, "-m", "trendradar"]
+
+
 _SECRET_KEY_PATHS = (
     "ai.api_key",
     "notification.channels.feishu.webhook_url",
@@ -104,7 +123,7 @@ class RunManager:
             errors = _load_errors()
             if self._proc is not None and self._proc.poll() is None:
                 raise errors.RunAlreadyActiveError("a TrendRadar run is already in progress")
-            cmd = command if command is not None else [sys.executable, "-m", "trendradar"]
+            cmd = command if command is not None else build_core_command()
             env = os.environ.copy()
             env.setdefault("PYTHONIOENCODING", "utf-8")
             env.update({k: str(v) for k, v in env_overrides.items()})

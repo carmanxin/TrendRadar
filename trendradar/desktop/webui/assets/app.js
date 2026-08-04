@@ -80,16 +80,29 @@ async function wireHome() {
 async function wireSettings() {
   const cfg = await (await fetch("/api/config")).json();
   const kw = await (await fetch("/api/keywords")).json();
-  document.getElementById("ai-key").value = cfg.ai?.api_key || "";
+  // The API key comes back MASKED (sk-abc****yz). Show it as a placeholder so
+  // the user knows a key is set, but never send the masked string back on save
+  // (that would corrupt the stored secret). Only send a new value if the user
+  // actually typed one.
+  const maskedKey = cfg.ai?.api_key || "";
+  const keyInput = document.getElementById("ai-key");
+  keyInput.placeholder = maskedKey ? `${maskedKey} (留空则不修改)` : "请输入 API Key";
+  keyInput.value = "";
   document.getElementById("keywords").value = kw.content;
 
   document.getElementById("save-key").onclick = async () => {
-    const k = document.getElementById("ai-key").value;
+    const typed = keyInput.value.trim();
+    const body = { ...(cfg.ai || {}) };
+    if (typed) {
+      body.api_key = typed;
+    }
     await fetch("/api/config/section/ai", {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...(cfg.ai || {}), api_key: k }),
+      body: JSON.stringify(body),
     });
-    alert("已保存");
+    alert(typed ? "已保存" : "Key 未修改，其余 AI 设置已保存");
+    // Clear the input so the masked value is never re-submitted accidentally.
+    keyInput.value = "";
   };
   document.getElementById("save-keywords").onclick = async () => {
     await fetch("/api/keywords", {

@@ -6,6 +6,7 @@ import annotations` — pydantic needs concrete list[str] at class time.
 """
 import asyncio
 import importlib.util
+import queue
 from pathlib import Path
 from typing import AsyncIterator, Optional
 
@@ -110,7 +111,14 @@ async def stream(request: Request) -> StreamingResponse:
                 if await request.is_disconnected():
                     break
                 # queue.Queue.get is blocking; run it off the event loop.
-                line = await asyncio.to_thread(queue_holder.get, timeout=1.0)
+                try:
+                    line = await asyncio.to_thread(queue_holder.get, timeout=1.0)
+                except queue.Empty:
+                    # Idle heartbeat: keep the SSE connection alive; if the
+                    # run has finished, fall through to emit `event: end`.
+                    if not mgr.is_running() and queue_holder.empty():
+                        break
+                    continue
                 if line is None:  # sentinel: stream closed
                     break
                 payload = line.encode("utf-8", errors="replace")

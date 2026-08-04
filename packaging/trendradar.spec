@@ -8,7 +8,7 @@ a = Analysis(
     pathex=['..'],
     binaries=[],
     datas=[
-        ('../trendradar/desktop/webui', 'trendradar/desktop/webui'),
+        ('../trendradar/desktop/webui', 'webui'),
         ('../config/frequency_words.txt', 'config'),
         ('../config/ai_interests.txt', 'config'),
         ('../config/timeline.yaml', 'config'),

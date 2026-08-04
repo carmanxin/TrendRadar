@@ -32,6 +32,39 @@ def _load_autostart():
     return mod
 
 
+def _load_config_store():
+    spec = importlib.util.spec_from_file_location(
+        "_tray_config_store", _HERE / "config_store.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_runner():
+    spec = importlib.util.spec_from_file_location(
+        "_tray_runner", _HERE / "runner.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _build_env_overrides() -> dict:
+    """Apply user_config ai.* settings as env vars (matches /api/run path)."""
+    ConfigStore = _load_config_store().ConfigStore
+    cfg = ConfigStore().load()
+    ai = cfg.get("ai", {})
+    overrides = {}
+    if ai.get("api_key"):
+        overrides["AI_API_KEY"] = ai["api_key"]
+    if ai.get("api_base"):
+        overrides["AI_API_BASE"] = ai["api_base"]
+    if ai.get("model"):
+        overrides["AI_MODEL"] = ai["model"]
+    return overrides
+
+
 def _make_icon_image() -> Image.Image:
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -59,9 +92,9 @@ class Tray:
         if mgr.is_running():
             log.info("tray: run already in progress, ignoring")
             return
-        # Env overrides come from user_config via the /api/run path; here we
-        # start with empty overrides so the subprocess inherits the desktop env.
-        mgr.start(env_overrides={})
+        # Apply user_config ai.* settings so a tray-triggered run uses the
+        # user's configured API key/base/model (same as the /api/run path).
+        mgr.start(env_overrides=_build_env_overrides())
 
     def _build_menu(self):
         return pystray.Menu(

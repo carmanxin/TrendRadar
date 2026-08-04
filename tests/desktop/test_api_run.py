@@ -74,3 +74,47 @@ def test_run_stop_returns_stopped(isolated_env):
     r = client.post("/api/run/stop")
     assert r.status_code == 200
     assert r.json()["stopped"] is True
+
+
+def test_logs_stream_emits_end_event(isolated_env):
+    """SSE stream must emit `event: end` after the subprocess exits."""
+    app_inst = DesktopApp(port=18765)
+    client = TestClient(app_inst.make_test_app())
+    test_mgr = RunManager()
+    app_inst.run_manager = test_mgr
+
+    # Start a short run, then open the SSE stream.
+    r = client.post("/api/run/start", json={
+        "command": [sys.executable, "-c", "import time; time.sleep(0.2); print('done')"]
+    })
+    assert r.status_code == 200
+
+    with client.stream("GET", "/api/run/logs/stream") as resp:
+        assert resp.status_code == 200
+        chunks = []
+        for line in resp.iter_lines():
+            if line:
+                chunks.append(line)
+            if "event: end" in "\n".join(chunks):
+                break
+    body = "\n".join(chunks)
+    assert "done" in body
+    assert "event: end" in body
+
+
+def test_logs_stream_handles_no_run(isolated_env):
+    """Opening the stream with no run in progress should terminate (not hang)."""
+    app_inst = DesktopApp(port=18765)
+    client = TestClient(app_inst.make_test_app())
+    test_mgr = RunManager()
+    app_inst.run_manager = test_mgr
+
+    with client.stream("GET", "/api/run/logs/stream") as resp:
+        assert resp.status_code == 200
+        chunks = []
+        for line in resp.iter_lines():
+            if line:
+                chunks.append(line)
+            if "event: end" in "\n".join(chunks):
+                break
+    assert "event: end" in "\n".join(chunks)
