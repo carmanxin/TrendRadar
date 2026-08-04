@@ -68,6 +68,16 @@ def create_app(desktop: "DesktopApp") -> FastAPI:
     config_spec.loader.exec_module(config_mod)
     app.include_router(config_mod.router)
 
+    # Load routes_keywords / routes_interests via importlib.
+    for fname, modname in (("routes_keywords", "keywords"), ("routes_interests", "interests")):
+        spec = importlib.util.spec_from_file_location(
+            f"_server_{modname}",
+            Path(__file__).resolve().parent / "api" / f"{fname}.py",
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        app.include_router(mod.router)
+
     app.mount("/static/assets", StaticFiles(directory=webui / "assets"), name="assets")
 
     @app.get("/")
