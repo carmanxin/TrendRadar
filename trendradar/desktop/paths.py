@@ -1,6 +1,7 @@
 """Path resolution that works in both dev and PyInstaller-bundled modes."""
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -9,9 +10,21 @@ from platformdirs import user_config_dir as _platform_user_config_dir
 APP_NAME = "TrendRadar"
 APP_AUTHOR = "TrendRadar"
 
+# Env override for the user config dir. Set by tests and available in
+# production for portable installs. All desktop modules resolve through
+# paths.py, so overriding here affects every consumer consistently.
+_ENV_USER_CONFIG_DIR = "TRENDRADAR_USER_CONFIG_DIR"
+
+
+def _user_config_dir() -> Path:
+    override = os.environ.get(_ENV_USER_CONFIG_DIR, "")
+    if override:
+        return Path(override)
+    return Path(_platform_user_config_dir(APP_NAME, APP_AUTHOR, roaming=True))
+
 
 def user_config_dir() -> Path:
-    p = Path(_platform_user_config_dir(APP_NAME, APP_AUTHOR, roaming=True))
+    p = _user_config_dir()
     p.mkdir(parents=True, exist_ok=True)
     return p
 
