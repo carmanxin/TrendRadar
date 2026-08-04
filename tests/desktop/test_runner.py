@@ -107,3 +107,21 @@ def test_run_manager_is_running_reflects_state():
     while mgr.is_running():
         time.sleep(0.05)
     assert mgr.is_running() is False
+
+
+def test_mask_config_redacts_known_secret_paths():
+    cfg = {
+        "ai": {"api_key": "sk-abcdefghij12345"},
+        "notification": {"channels": {"feishu": {"webhook_url": "https://open.feishu.cn/hook/abc"}}},
+    }
+    masked = runner.mask_config(cfg)
+    assert "sk-abcdefghij12345" not in str(masked)
+    assert masked["ai"]["api_key"].startswith("sk-abc")
+    assert "****" in masked["ai"]["api_key"]
+    assert "abc" not in masked["notification"]["channels"]["feishu"]["webhook_url"]
+
+
+def test_mask_config_does_not_mutate_input():
+    cfg = {"ai": {"api_key": "sk-aaaa"}}
+    runner.mask_config(cfg)
+    assert cfg["ai"]["api_key"] == "sk-aaaa"

@@ -49,6 +49,44 @@ def redact_secrets(text: str) -> str:
     return _SECRET_PATTERN.sub(r"\1=***", text)
 
 
+_SECRET_KEY_PATHS = (
+    "ai.api_key",
+    "notification.channels.feishu.webhook_url",
+    "notification.channels.dingtalk.webhook_url",
+    "notification.channels.wework.webhook_url",
+    "notification.channels.telegram.bot_token",
+    "notification.channels.email.password",
+    "notification.channels.ntfy.token",
+    "notification.channels.bark.url",
+    "notification.channels.slack.webhook_url",
+    "notification.channels.generic_webhook.webhook_url",
+)
+
+
+def mask_config(cfg: dict) -> dict:
+    """Deep-copy cfg, masking values at known secret paths.
+
+    Returns a copy; does NOT mutate the input. Each masked value becomes
+    `sk-abc****yz` style (first 6 + '****' + last 2 chars) when longer than
+    10 chars, else a bare `****`.
+    """
+    import copy
+
+    out = copy.deepcopy(cfg)
+    for dotted in _SECRET_KEY_PATHS:
+        parts = dotted.split(".")
+        cur = out
+        for p in parts[:-1]:
+            if not isinstance(cur, dict) or p not in cur:
+                cur = None
+                break
+            cur = cur[p]
+        if isinstance(cur, dict) and parts[-1] in cur and isinstance(cur[parts[-1]], str):
+            v = cur[parts[-1]]
+            cur[parts[-1]] = (v[:6] + "****" + v[-2:]) if len(v) > 10 else "****"
+    return out
+
+
 class RunManager:
     """Owns at most one subprocess. Thread-safe start/wait, async stream API."""
 

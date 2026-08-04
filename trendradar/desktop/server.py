@@ -59,6 +59,15 @@ def create_app(desktop: "DesktopApp") -> FastAPI:
     wizard_spec.loader.exec_module(wizard_mod)
     app.include_router(wizard_mod.router)
 
+    # Load routes_config via importlib (same reason).
+    config_spec = importlib.util.spec_from_file_location(
+        "_server_routes_config",
+        Path(__file__).resolve().parent / "api" / "routes_config.py",
+    )
+    config_mod = importlib.util.module_from_spec(config_spec)
+    config_spec.loader.exec_module(config_mod)
+    app.include_router(config_mod.router)
+
     app.mount("/static/assets", StaticFiles(directory=webui / "assets"), name="assets")
 
     @app.get("/")
