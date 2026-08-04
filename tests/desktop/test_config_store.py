@@ -55,6 +55,11 @@ def isolated_user_config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(
         paths, "audit_log_file", lambda: tmp_path / "audit.log"
     )
+    # Make ConfigStore use OUR (already-patched) paths module rather than the
+    # one its own _load_paths() loads fresh from disk. Otherwise the test file's
+    # monkeypatches on `paths` would be ignored and ConfigStore would resolve
+    # `audit_log_file()` to the real %APPDATA%\TrendRadar\audit.log.
+    monkeypatch.setattr(cs_mod, "_load_paths", lambda: paths)
     yield tmp_path
 
 
@@ -86,8 +91,14 @@ def test_update_deep_merges(tmp_path: Path):
 def test_set_secret_uses_dot_path(tmp_path: Path):
     p = tmp_path / "user_config.yaml"
     store = ConfigStore(p)
+    # Sanity-check that ConfigStore resolved its audit_log path to inside tmp_path,
+    # not the real %APPDATA%\TrendRadar\audit.log.
+    assert store.audit_log.parent == tmp_path
     store.set_secret("ai.api_key", "sk-new")
     assert store.load()["ai"]["api_key"] == "sk-new"
+    # The audit line must have landed in tmp_path/audit.log, not the real one.
+    assert (tmp_path / "audit.log").exists()
+    assert "ai.api_key" in (tmp_path / "audit.log").read_text(encoding="utf-8")
 
 
 def test_audit_appends_line(tmp_path: Path):
