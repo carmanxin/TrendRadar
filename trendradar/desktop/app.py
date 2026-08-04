@@ -81,6 +81,24 @@ class DesktopApp:
         self._server: Optional[uvicorn.Server] = None
         self._thread: Optional[threading.Thread] = None
         self.host = self.DEFAULT_HOST
+        self._tray = None
+        self._run_manager = None
+
+    @property
+    def run_manager(self):
+        if self._run_manager is None:
+            # Lazy instantiate so importing app.py doesn't pull in runner.
+            runner_spec = importlib.util.spec_from_file_location(
+                "_app_runner", Path(__file__).resolve().parent / "runner.py"
+            )
+            runner_mod = importlib.util.module_from_spec(runner_spec)
+            runner_spec.loader.exec_module(runner_mod)
+            self._run_manager = runner_mod.RunManager()
+        return self._run_manager
+
+    @run_manager.setter
+    def run_manager(self, value):
+        self._run_manager = value
 
     def start(self, open_browser: bool = True) -> None:
         if not _is_port_free(self.host, self.port):

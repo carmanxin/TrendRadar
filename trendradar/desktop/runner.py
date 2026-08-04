@@ -1,18 +1,20 @@
-"""Subprocess manager that streams redacted stdout via an asyncio queue.
+"""Subprocess manager that streams redacted stdout via a thread-safe queue.
+
+Runs a dedicated pump thread that reads the subprocess's stdout line by
+line, redacts secrets, appends to a ring buffer, and fans out to subscriber
+queues. Works whether `start()` is called from an async context (FastAPI
+route) or a sync context (system tray thread). Subscribers use
+`queue.Queue` (thread-safe); async consumers poll via asyncio.to_thread.
 
 This module uses a lazy loader for `errors` to avoid the eager
-`trendradar/__init__.py` import chain (which pulls in litellm and other
-heavy deps). In production, when litellm is installed and the package
-is on sys.path normally, the import `from trendradar.desktop import errors`
-would also work — but the lazy form keeps the module usable in minimal
-test environments and matches the pattern used in test_paths.py and
-test_config_store.py.
+`trendradar/__init__.py` chain (litellm).
 """
 from __future__ import annotations
 
 import asyncio
 import importlib.util
 import os
+import queue
 import re
 import signal
 import subprocess
@@ -28,12 +30,6 @@ _SECRET_PATTERN = re.compile(
 
 
 def _load_errors():
-    """Lazily import sibling `errors.py` without triggering trendradar/__init__.py.
-
-    Mirrors the importlib trick used in tests/desktop/* and in config_store.py
-    so that `runner` can be imported in environments where the full
-    `trendradar` package (and its litellm dependency) is unavailable.
-    """
     here = Path(__file__).resolve().parent
     spec = importlib.util.spec_from_file_location(
         "_trendradar_desktop_errors_for_runner", here / "errors.py"
@@ -88,17 +84,16 @@ def mask_config(cfg: dict) -> dict:
 
 
 class RunManager:
-    """Owns at most one subprocess. Thread-safe start/wait, async stream API."""
+    """Owns at most one subprocess. Thread-safe start/wait, stream API."""
 
     _RING_BUFFER_SIZE = 10_000
 
     def __init__(self) -> None:
         self._proc: Optional[subprocess.Popen] = None
-        self._subscribers: List[asyncio.Queue[str]] = []
+        self._subscribers: List[queue.Queue] = []
         self._logs: Deque[str] = deque(maxlen=self._RING_BUFFER_SIZE)
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._lock = threading.Lock()
-        self._pump_task: Optional[asyncio.Task] = None
+        self._pump_thread: Optional[threading.Thread] = None
 
     def is_running(self) -> bool:
         with self._lock:
@@ -124,40 +119,40 @@ class RunManager:
                 errors="replace",
             )
             self._logs.clear()
-            self._subscribers.clear()
-            try:
-                self._loop = asyncio.get_running_loop()
-            except RuntimeError:
-                self._loop = None
-            if self._loop is not None:
-                self._pump_task = self._loop.create_task(self._pump_logs())
+            # Reuse live subscriber queues, but clear stale ones from previous runs.
+            self._subscribers = [q for q in self._subscribers if q is not None]
+            self._pump_thread = threading.Thread(target=self._pump_loop, daemon=True)
+            self._pump_thread.start()
 
-    async def _pump_logs(self) -> None:
+    def _pump_loop(self) -> None:
+        """Read subprocess stdout line-by-line until EOF; then wait for exit."""
         assert self._proc is not None and self._proc.stdout is not None
-        loop = asyncio.get_running_loop()
-        while True:
-            line = await loop.run_in_executor(None, self._proc.stdout.readline)
-            if not line:
-                break
-            line = line.rstrip("\n")
-            line = redact_secrets(line)
-            self._logs.append(line)
+        try:
+            for raw in self._proc.stdout:
+                line = raw.rstrip("\n")
+                line = redact_secrets(line)
+                self._logs.append(line)
+                for q in list(self._subscribers):
+                    try:
+                        q.put_nowait(line)
+                    except queue.Full:
+                        pass
+        finally:
+            try:
+                self._proc.wait()
+            except Exception:
+                pass
+            # Notify subscribers of stream end.
             for q in list(self._subscribers):
                 try:
-                    q.put_nowait(line)
-                except asyncio.QueueFull:
+                    q.put_nowait(None)  # sentinel: stream closed
+                except queue.Full:
                     pass
-        await loop.run_in_executor(None, self._proc.wait)
 
     async def wait_async(self) -> int:
-        if self._loop is None:
-            raise RuntimeError("start() must be called from within an asyncio loop")
-        if self._pump_task is not None:
-            await self._pump_task
-        with self._lock:
-            return self._proc.returncode if self._proc else -1
+        return await asyncio.to_thread(self.wait)
 
-    def wait(self) -> int:  # sync helper for tests
+    def wait(self) -> int:  # sync helper
         if self._proc is None:
             return -1
         return self._proc.wait()
@@ -175,68 +170,12 @@ class RunManager:
             except subprocess.TimeoutExpired:
                 self._proc.kill()
 
-    def subscribe(self) -> asyncio.Queue[str]:
-        q: asyncio.Queue[str] = asyncio.Queue(maxsize=10000)
+    def subscribe(self) -> "queue.Queue":
+        q: "queue.Queue" = queue.Queue(maxsize=10000)
         self._subscribers.append(q)
         return q
 
-    def unsubscribe(self, q: asyncio.Queue[str]) -> None:
-        if q in self._subscribers:
-            self._subscribers.remove(q)
-
-    def recent_logs(self) -> List[str]:
-        return list(self._logs)
-
-
-    async def _pump_logs(self) -> None:
-        assert self._proc is not None and self._proc.stdout is not None
-        loop = asyncio.get_running_loop()
-        while True:
-            line = await loop.run_in_executor(None, self._proc.stdout.readline)
-            if not line:
-                break
-            line = line.rstrip("\n")
-            line = redact_secrets(line)
-            self._logs.append(line)
-            for q in list(self._subscribers):
-                try:
-                    q.put_nowait(line)
-                except asyncio.QueueFull:
-                    pass
-        await loop.run_in_executor(None, self._proc.wait)
-
-    async def wait_async(self) -> int:
-        if self._loop is None:
-            raise RuntimeError("start() must be called from within an asyncio loop")
-        if self._pump_task is not None:
-            await self._pump_task
-        with self._lock:
-            return self._proc.returncode if self._proc else -1
-
-    def wait(self) -> int:  # sync helper for tests
-        if self._proc is None:
-            return -1
-        return self._proc.wait()
-
-    def stop(self, timeout: float = 5.0) -> None:
-        with self._lock:
-            if self._proc is None or self._proc.poll() is not None:
-                return
-            try:
-                if os.name == "nt":
-                    self._proc.terminate()
-                else:
-                    self._proc.send_signal(signal.SIGTERM)
-                self._proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
-
-    def subscribe(self) -> asyncio.Queue[str]:
-        q: asyncio.Queue[str] = asyncio.Queue(maxsize=10000)
-        self._subscribers.append(q)
-        return q
-
-    def unsubscribe(self, q: asyncio.Queue[str]) -> None:
+    def unsubscribe(self, q: "queue.Queue") -> None:
         if q in self._subscribers:
             self._subscribers.remove(q)
 

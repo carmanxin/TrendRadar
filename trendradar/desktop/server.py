@@ -87,6 +87,15 @@ def create_app(desktop: "DesktopApp") -> FastAPI:
     sources_spec.loader.exec_module(sources_mod)
     app.include_router(sources_mod.router)
 
+    # Load routes_run via importlib.
+    run_spec = importlib.util.spec_from_file_location(
+        "_server_routes_run",
+        Path(__file__).resolve().parent / "api" / "routes_run.py",
+    )
+    run_mod = importlib.util.module_from_spec(run_spec)
+    run_spec.loader.exec_module(run_mod)
+    app.include_router(run_mod.router)
+
     app.mount("/static/assets", StaticFiles(directory=webui / "assets"), name="assets")
 
     @app.get("/")
