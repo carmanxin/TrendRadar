@@ -43,9 +43,10 @@ import pytest
 def isolated_user_config_dir(tmp_path, monkeypatch):
     """Point paths.user_config_dir/file/audit_log at a temp dir for every test.
 
-    This mirrors the autouse fixture in `test_paths.py`. Both files load
-    `paths` via importlib, so this monkeypatch on the shared `paths` module
-    also affects ConfigStore's lazy lookup.
+    Scoped to this file only — `test_paths.py` deliberately exercises the
+    real platformdirs-backed functions and does NOT use this fixture.
+    Both files load `paths` via importlib, so this monkeypatch on this
+    file's `paths` module also affects ConfigStore's lazy lookup.
     """
     monkeypatch.setattr(paths, "user_config_dir", lambda: tmp_path)
     monkeypatch.setattr(

@@ -7,7 +7,7 @@ spec = importlib.util.spec_from_file_location("_trendradar_desktop_paths", _PATH
 paths = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(paths)
 
-# Tests — same as brief but using the loaded module
+
 def test_user_config_dir_returns_path():
     result = paths.user_config_dir()
     assert isinstance(result, Path)
@@ -43,14 +43,3 @@ def test_webui_dir_is_callable():
 def test_module_constants_are_set():
     assert paths.APP_NAME == "TrendRadar"
     assert paths.APP_AUTHOR == "TrendRadar"
-
-
-import pytest
-
-
-@pytest.fixture(autouse=True)
-def isolated_user_config_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(paths, "user_config_dir", lambda: tmp_path)
-    monkeypatch.setattr(paths, "user_config_file", lambda: tmp_path / "user_config.yaml")
-    monkeypatch.setattr(paths, "audit_log_file", lambda: tmp_path / "audit.log")
-    yield tmp_path
