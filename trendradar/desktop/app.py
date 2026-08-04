@@ -104,8 +104,13 @@ class DesktopApp:
         if not _is_port_free(self.host, self.port):
             self.port = _find_free_port(self.host, self.port + 1)
 
-        from trendradar.desktop.server import create_app
-        app = create_app(self)
+        # Lazy-load server via importlib to avoid the trendradar package chain.
+        server_spec = importlib.util.spec_from_file_location(
+            "_app_server_for_start", Path(__file__).resolve().parent / "server.py"
+        )
+        server_mod = importlib.util.module_from_spec(server_spec)
+        server_spec.loader.exec_module(server_mod)
+        app = server_mod.create_app(self)
         config = uvicorn.Config(
             app, host=self.host, port=self.port, log_level="warning", lifespan="on"
         )
@@ -116,6 +121,21 @@ class DesktopApp:
             if self._server.started:
                 break
             time.sleep(0.1)
+
+        # Start tray unless disabled (headless servers / CI).
+        if os.environ.get("TRENDRADAR_DESKTOP_NO_TRAY") != "1":
+            try:
+                tray_spec = importlib.util.spec_from_file_location(
+                    "_app_tray", Path(__file__).resolve().parent / "tray.py"
+                )
+                tray_mod = importlib.util.module_from_spec(tray_spec)
+                tray_spec.loader.exec_module(tray_mod)
+                if self._tray is None:
+                    self._tray = tray_mod.Tray(self)
+                self._tray.start()
+            except Exception as e:
+                log.warning("tray not started: %s", e)
+
         if open_browser:
             try:
                 webbrowser.open(f"http://{self.host}:{self.port}")
@@ -123,6 +143,8 @@ class DesktopApp:
                 log.warning("could not open browser", exc_info=True)
 
     def stop(self) -> None:
+        if self._tray is not None:
+            self._tray.stop()
         if self._server is not None:
             self._server.should_exit = True
         if self._thread is not None:

@@ -78,3 +78,49 @@ def _get_trendradar_version() -> str:
         except Exception:
             pass
     return "unknown"
+
+
+def _load_autostart():
+    spec = importlib.util.spec_from_file_location(
+        "_routes_system_autostart", _DESKTOP / "autostart.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_version_check():
+    spec = importlib.util.spec_from_file_location(
+        "_routes_system_version_check", _DESKTOP / "version_check.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@router.get("/autostart")
+def get_autostart():
+    import sys
+    autostart = _load_autostart()
+    return {"enabled": autostart.is_enabled(sys.executable)}
+
+
+@router.put("/autostart")
+def put_autostart(payload: dict):
+    import sys
+    autostart = _load_autostart()
+    enabled = bool(payload.get("enabled"))
+    autostart.set_enabled(enabled, sys.executable)
+    return {"enabled": enabled}
+
+
+@router.get("/version-check")
+def version_check_endpoint():
+    version_check = _load_version_check()
+    latest = version_check.fetch_latest()
+    current = _get_trendradar_version()
+    return {
+        "current": current,
+        "latest": latest,
+        "update_available": latest is not None and latest.lstrip("v") != current,
+    }
