@@ -7,7 +7,17 @@ on:
       - 'trendradar/desktop/**'
       - 'packaging/**'
       - '.github/workflows/build-desktop.yml'
+      - 'version'
   workflow_dispatch:
+
+# 并发保护：同时只跑一个构建+发布，避免 Release 竞争
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+# action-gh-release 需要写 contents 权限才能创建/更新 Release
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -35,8 +45,38 @@ jobs:
           TRENDRADAR_SMOKE: '1'
         run: |
           TRENDRADAR_DESKTOP_NO_TRAY=1 TRENDRADAR_SMOKE=1 python -m pytest tests/desktop/test_smoke.py -v
+      - name: Stage bundle
+        run: |
+          # 压缩为单 zip，便于用户下载；zip 内含完整 TrendRadar/ 目录
+          cd dist
+          python -c "import zipfile,glob; z=zipfile.ZipFile('TrendRadar-${{ matrix.os }}.zip','w',zipfile.ZIP_DEFLATED); [z.write(f,f.replace('TrendRadar/','TrendRadar/',1)) for f in glob.glob('TrendRadar/**/*',recursive=True) if not f.endswith('/')]"
+          ls -la *.zip
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: TrendRadar-${{ matrix.os }}
-          path: dist/TrendRadar
+          path: dist/*.zip
+      - name: Upload zip to Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/master' && !startsWith(github.event.head_commit.message, 'chore')
+        with:
+          # 固定的 desktop-latest tag：每次 master 构建都覆盖，不会无限刷 release
+          tag_name: desktop-latest
+          name: "TrendRadar Desktop (latest build ${{ github.sha }})"
+          body: |
+            TrendRadar 桌面版自动构建产物（每次 master 更新自动刷新）。
+
+            ## 使用
+            1. 下载对应平台的 zip
+            2. 解压得到 `TrendRadar/` 文件夹
+            3. 双击 `TrendRadar.exe`（Windows）或 `TrendRadar`（macOS/Linux）
+            4. 浏览器自动打开向导，填入 AI API Key 后即可使用
+
+            ## 各平台产物
+            - Windows: `TrendRadar-windows-latest.zip`
+            - macOS: `TrendRadar-macos-latest.zip`
+            - Linux: `TrendRadar-ubuntu-latest.zip`
+
+            > 产物完全自包含，不含任何开发者的本地配置。
+          files: dist/*.zip
+          fail_on_unmatched_files: false
