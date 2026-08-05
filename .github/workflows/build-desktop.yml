@@ -10,11 +10,6 @@ on:
       - 'version'
   workflow_dispatch:
 
-# 并发保护：同时只跑一个构建+发布，避免 Release 竞争
-concurrency:
-  group: build-desktop-${{ github.ref }}
-  cancel-in-progress: true
-
 # action-gh-release 需要写 contents 权限才能创建/更新 Release
 permissions:
   contents: write
