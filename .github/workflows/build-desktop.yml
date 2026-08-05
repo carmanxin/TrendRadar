@@ -1,0 +1,42 @@
+name: build-desktop
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'trendradar/desktop/**'
+      - 'packaging/**'
+      - '.github/workflows/build-desktop.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          # Desktop test deps (litellm comes from core; ensure test tooling present)
+          pip install pytest pytest-asyncio pyinstaller
+      - name: Build bundle
+        run: python packaging/build.py
+      - name: Smoke test (skip on macOS GUI limitation)
+        if: matrix.os != 'macos-latest'
+        env:
+          TRENDRADAR_SMOKE: '1'
+        run: |
+          TRENDRADAR_DESKTOP_NO_TRAY=1 TRENDRADAR_SMOKE=1 python -m pytest tests/desktop/test_smoke.py -v
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrendRadar-${{ matrix.os }}
+          path: dist/TrendRadar

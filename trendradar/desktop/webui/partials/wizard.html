@@ -1,0 +1,12 @@
+<!-- trendradar/desktop/webui/partials/wizard.html -->
+<section id="wizard">
+  <h2>首次设置</h2>
+  <form id="wizard-form">
+    <label>AI API Base <input name="ai_base" placeholder="https://api.deepseek.com/v1" required /></label>
+    <label>AI API Key <input name="ai_key" type="password" required /></label>
+    <label>模型 <input name="ai_model" value="deepseek/deepseek-reasoner" required /></label>
+    <label>时区 <input name="timezone" value="Asia/Shanghai" required /></label>
+    <button type="submit">完成设置</button>
+  </form>
+  <div id="wizard-error" hidden></div>
+</section>
